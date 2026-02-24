@@ -6,7 +6,6 @@ import {
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { KanbanProvider, KanbanContext } from "./KanbanContext";
 import Column from "./Column";
-import Card from "./Card";
 import { useContext, useState } from "react";
 import type { CardType } from "./KanbanContext";
 

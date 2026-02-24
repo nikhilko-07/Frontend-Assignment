@@ -1,5 +1,5 @@
-import React, { createContext, useReducer, ReactNode } from "react";
-
+import React, { createContext, useReducer } from "react";
+import type { ReactNode } from "react";
 export type CardType = {
     id: string;
     title: string;
