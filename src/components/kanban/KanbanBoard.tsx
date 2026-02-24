@@ -1,137 +1,77 @@
 import {
     DndContext,
-    closestCorners,
+    closestCenter,
+    DragOverlay,
 } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
-import { useState } from "react";
+import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
+import { KanbanProvider, KanbanContext } from "./KanbanContext";
 import Column from "./Column";
-import type { ColumnType } from "./types";
-import { v4 as uuid } from "uuid";
+import Card from "./Card";
+import { useContext, useState } from "react";
+import type { CardType } from "./KanbanContext";
 
-const initialData: ColumnType[] = [
-    {
-        id: "todo",
-        title: "Todo",
-        cards: [
-            { id: uuid(), title: "Create initial project plan" },
-            { id: uuid(), title: "Design landing page" },
-        ],
-    },
-    {
-        id: "progress",
-        title: "In Progress",
-        cards: [
-            { id: uuid(), title: "Implement authentication" },
-        ],
-    },
-    {
-        id: "done",
-        title: "Done",
-        cards: [
-            { id: uuid(), title: "Write API documentation" },
-        ],
-    },
-];
+function BoardContent() {
+    const { state, dispatch } = useContext(KanbanContext);
+    const [activeCard, setActiveCard] = useState<CardType | null>(null);
 
-export default function KanbanBoard() {
-    const [columns, setColumns] = useState(initialData);
+    const handleDragStart = (event: DragStartEvent) => {
+        const [columnId, cardId] = event.active.id.toString().split("::");
+
+        const column = state.columns.find((c) => c.id === columnId);
+        const card = column?.cards.find((c) => c.id === cardId);
+
+        if (card) {
+            setActiveCard(card);
+        }
+    };
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
+        setActiveCard(null);
+
         if (!over) return;
 
-        const activeId = active.id as string;
-        const overId = over.id as string;
+        const [fromColumnId, cardId] = active.id.toString().split("::");
+        const toColumnId = over.id.toString();
 
-        let sourceColumn = columns.find(col =>
-            col.cards.some(card => card.id === activeId)
-        );
+        if (!fromColumnId || !cardId) return;
 
-        let targetColumn = columns.find(col =>
-            col.cards.some(card => card.id === overId)
-        );
-
-        // Dropped in empty column
-        if (!targetColumn) {
-            targetColumn = columns.find(col => col.id === overId);
-        }
-
-        if (!sourceColumn || !targetColumn) return;
-
-        // SAME COLUMN REORDER
-        if (sourceColumn.id === targetColumn.id) {
-            const oldIndex = sourceColumn.cards.findIndex(c => c.id === activeId);
-            const newIndex = targetColumn.cards.findIndex(c => c.id === overId);
-
-            if (newIndex === -1) return;
-
-            const updatedCards = arrayMove(
-                sourceColumn.cards,
-                oldIndex,
-                newIndex
-            );
-
-            setColumns(prev =>
-                prev.map(col =>
-                    col.id === sourceColumn!.id
-                        ? { ...col, cards: updatedCards }
-                        : col
-                )
-            );
-        } else {
-            // MOVE TO DIFFERENT COLUMN
-            const movingCard = sourceColumn.cards.find(c => c.id === activeId);
-            if (!movingCard) return;
-
-            setColumns(prev =>
-                prev.map(col => {
-                    if (col.id === sourceColumn!.id) {
-                        return {
-                            ...col,
-                            cards: col.cards.filter(c => c.id !== activeId),
-                        };
-                    }
-                    if (col.id === targetColumn!.id) {
-                        return {
-                            ...col,
-                            cards: [...col.cards, movingCard],
-                        };
-                    }
-                    return col;
-                })
-            );
-        }
-    };
-
-    const updateColumn = (updated: ColumnType) => {
-        setColumns(prev =>
-            prev.map(col =>
-                col.id === updated.id ? updated : col
-            )
-        );
+        dispatch({
+            type: "MOVE_CARD",
+            fromColumnId,
+            toColumnId,
+            cardId,
+        });
     };
 
     return (
-        <div className="min-h-screen p-6 bg-gray-50">
-            <h1 className="text-2xl font-bold mb-6">
-                Kanban Board
-            </h1>
+        <DndContext
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+        >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {state.columns.map((col) => (
+                    <Column key={col.id} column={col} />
+                ))}
+            </div>
 
-            <DndContext
-                collisionDetection={closestCorners}
-                onDragEnd={handleDragEnd}
-            >
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {columns.map((column) => (
-                        <Column
-                            key={column.id}
-                            column={column}
-                            updateColumn={updateColumn}
-                        />
-                    ))}
-                </div>
-            </DndContext>
-        </div>
+            {/* 🔥 DRAG OVERLAY FIX */}
+            <DragOverlay>
+                {activeCard ? (
+                    <div className="bg-gray-200 p-3 rounded-lg shadow-lg w-60 opacity-90">
+                        {activeCard.title}
+                    </div>
+                ) : null}
+            </DragOverlay>
+        </DndContext>
+    );
+}
+
+export default function KanbanBoard() {
+    return (
+        <KanbanProvider>
+            <BoardContent />
+        </KanbanProvider>
     );
 }

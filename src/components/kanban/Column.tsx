@@ -1,80 +1,56 @@
-import { useDroppable } from "@dnd-kit/core";
-import {
-    SortableContext,
-    verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import type { ColumnType } from "./types";
+import { useContext, useState } from "react";
+import { KanbanContext } from "./KanbanContext";
+import type { ColumnType } from "./KanbanContext";
 import Card from "./Card";
-import { v4 as uuid } from "uuid";
+import { useDroppable } from "@dnd-kit/core";
 
-interface Props {
-    column: ColumnType;
-    updateColumn: (column: ColumnType) => void;
-}
+export default function Column({ column }: { column: ColumnType }) {
+    const { dispatch } = useContext(KanbanContext);
+    const [newTitle, setNewTitle] = useState("");
 
-export default function Column({ column, updateColumn }: Props) {
     const { setNodeRef } = useDroppable({
         id: column.id,
     });
 
-    const addCard = () => {
-        const title = prompt("Enter card title");
-        if (!title) return;
+    const handleAdd = () => {
+        if (!newTitle.trim()) return;
 
-        updateColumn({
-            ...column,
-            cards: [...column.cards, { id: uuid(), title }],
+        dispatch({
+            type: "ADD_CARD",
+            columnId: column.id,
+            title: newTitle,
         });
-    };
 
-    const deleteCard = (id: string) => {
-        updateColumn({
-            ...column,
-            cards: column.cards.filter((c) => c.id !== id),
-        });
-    };
-
-    const editCard = (id: string, title: string) => {
-        updateColumn({
-            ...column,
-            cards: column.cards.map((c) =>
-                c.id === id ? { ...c, title } : c
-            ),
-        });
+        setNewTitle("");
     };
 
     return (
         <div
             ref={setNodeRef}
-            className="bg-gray-100 rounded-xl p-4 min-h-[350px]"
+            className="bg-white rounded-xl shadow p-4 flex flex-col max-h-[70vh]"
         >
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="font-semibold">
-                    {column.title} ({column.cards.length})
-                </h2>
-                <button
-                    onClick={addCard}
-                    className="bg-blue-500 text-white px-2 rounded"
-                >
-                    +
-                </button>
+            <h2 className="font-semibold mb-3">{column.title}</h2>
+
+            <div className="flex-1 overflow-y-auto space-y-3">
+                {column.cards.map((card) => (
+                    <Card key={card.id} card={card} columnId={column.id} />
+                ))}
             </div>
 
-            <SortableContext
-                items={column.cards.map((c) => c.id)}
-                strategy={verticalListSortingStrategy}
-            >
-                <div className="space-y-3">
-                    {column.cards.map((card) => (
-                        <Card
-                            key={card.id}
-                            card={card}
-                            onDelete={() => deleteCard(card.id)}
-                            onEdit={(title) => editCard(card.id, title)}
-                        />
-                    ))}
-                </div>
-            </SortableContext>
+            <div className="mt-3">
+                <input
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="New task..."
+                    className="w-full p-2 border rounded text-sm"
+                />
+                <button
+                    onClick={handleAdd}
+                    className="mt-2 w-full bg-blue-500 text-white p-2 rounded text-sm"
+                >
+                    Add
+                </button>
+            </div>
         </div>
     );
 }

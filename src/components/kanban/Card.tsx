@@ -1,63 +1,83 @@
-import { useState } from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import type { CardType } from "./types";
+import { useContext, useState } from "react";
+import { useDraggable } from "@dnd-kit/core";
+import { KanbanContext } from "./KanbanContext";
+import type { CardType } from "./KanbanContext";
 
-interface Props {
+export default function Card({
+    card,
+    columnId,
+}: {
     card: CardType;
-    onDelete: () => void;
-    onEdit: (title: string) => void;
-}
-
-export default function Card({ card, onDelete, onEdit }: Props) {
-    const { attributes, listeners, setNodeRef, transform, transition } =
-        useSortable({ id: card.id });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-    };
-
+    columnId: string;
+}) {
+    const { dispatch } = useContext(KanbanContext);
     const [editing, setEditing] = useState(false);
-    const [value, setValue] = useState(card.title);
+    const [title, setTitle] = useState(card.title);
 
-    const handleBlur = () => {
-        if (value.trim() !== "") {
-            onEdit(value);
+    const { attributes, listeners, setNodeRef, transform } = useDraggable({
+        id: `${columnId}::${card.id}`,
+    });
+
+    const style = transform
+        ? {
+            transform: `translate(${transform.x}px, ${transform.y}px)`,
         }
-        setEditing(false);
-    };
+        : undefined;
 
     return (
         <div
             ref={setNodeRef}
             style={style}
-            {...attributes}
-            {...listeners}
-            className="bg-white border rounded-lg p-3 shadow-sm flex justify-between items-center cursor-grab"
+            className="bg-gray-100 p-3 rounded-lg shadow"
         >
+            {/* DRAG HANDLE ONLY */}
+            <div
+                {...listeners}
+                {...attributes}
+                className="cursor-grab text-gray-400 text-xs mb-2"
+            >
+                ⠿ Drag
+            </div>
+
+            {/* TITLE */}
             {editing ? (
                 <input
-                    className="border px-2 py-1 text-sm w-full"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    onBlur={handleBlur}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    onBlur={() => {
+                        dispatch({
+                            type: "EDIT_CARD",
+                            columnId,
+                            cardId: card.id,
+                            title,
+                        });
+                        setEditing(false);
+                    }}
                     autoFocus
+                    className="w-full p-1 border rounded text-sm"
                 />
             ) : (
                 <p
-                    onClick={() => setEditing(true)}
-                    className="text-sm w-full"
+                    onDoubleClick={() => setEditing(true)}
+                    className="text-sm"
                 >
                     {card.title}
                 </p>
             )}
 
+            {/* DELETE BUTTON */}
             <button
-                onClick={onDelete}
-                className="text-red-500 text-sm ml-2"
+                onClick={(e) => {
+                    e.stopPropagation(); // 🔥 IMPORTANT
+                    dispatch({
+                        type: "DELETE_CARD",
+                        columnId,
+                        cardId: card.id,
+                    });
+                }}
+                className="text-red-500 text-xs mt-2"
             >
-                ✕
+                Delete
             </button>
         </div>
     );

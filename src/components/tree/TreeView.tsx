@@ -1,8 +1,12 @@
 import {
     DndContext,
     closestCenter,
+    DragOverlay,
 } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
+import type {
+    DragEndEvent,
+    DragStartEvent,
+} from "@dnd-kit/core";
 import {
     SortableContext,
     verticalListSortingStrategy,
@@ -13,125 +17,156 @@ import { useState } from "react";
 import { v4 as uuid } from "uuid";
 import type TreeNodeType from "./types";
 
-/* ------------------- MAIN COMPONENT ------------------- */
+/* ======================= MAIN ======================= */
 
 export default function TreeView() {
     const [nodes, setNodes] = useState<TreeNodeType[]>([
         {
             id: uuid(),
-            name: "A",
+            name: "Root",
             parentId: null,
             hasLoaded: false,
         },
     ]);
 
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [activeId, setActiveId] = useState<string | null>(null);
 
-    /* -------- Helpers -------- */
+    /* ------------ Helpers ------------ */
 
     const getChildren = (parentId: string | null) =>
         nodes.filter((n) => n.parentId === parentId);
 
+    const getNode = (id: string) =>
+        nodes.find((n) => n.id === id);
+
+    /* ------------ Expand + Lazy ------------ */
+
     const toggleExpand = (id: string) => {
-        const node = nodes.find((n) => n.id === id);
+        const node = getNode(id);
         if (!node) return;
 
-        const newSet = new Set(expanded);
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
 
-        if (newSet.has(id)) {
-            newSet.delete(id);
-        } else {
-            newSet.add(id);
+        if (!node.hasLoaded) {
+            setNodes((prev) =>
+                prev.map((n) =>
+                    n.id === id ? { ...n, isLoading: true } : n
+                )
+            );
 
-            // Proper lazy loading
-            if (!node.hasLoaded) {
-                setNodes((prev) =>
-                    prev.map((n) =>
-                        n.id === id ? { ...n, isLoading: true } : n
-                    )
-                );
-
-                setTimeout(() => {
-                    setNodes((prev) => [
-                        ...prev.map((n) =>
-                            n.id === id
-                                ? { ...n, hasLoaded: true, isLoading: false }
-                                : n
-                        ),
-                        {
-                            id: uuid(),
-                            name: "Lazy Child 1",
-                            parentId: id,
-                        },
-                        {
-                            id: uuid(),
-                            name: "Lazy Child 2",
-                            parentId: id,
-                        },
-                    ]);
-                }, 1000);
-            }
+            setTimeout(() => {
+                setNodes((prev) => [
+                    ...prev.map((n) =>
+                        n.id === id
+                            ? { ...n, hasLoaded: true, isLoading: false }
+                            : n
+                    ),
+                    {
+                        id: uuid(),
+                        name: "Lazy Child 1",
+                        parentId: id,
+                        hasLoaded: false,
+                    },
+                    {
+                        id: uuid(),
+                        name: "Lazy Child 2",
+                        parentId: id,
+                        hasLoaded: false,
+                    },
+                ]);
+            }, 800);
         }
-
-        setExpanded(newSet);
     };
 
-    const addNode = (parentId: string | null) => {
-        const name = prompt("Enter node name");
-        if (!name) return;
+    /* ------------ Add ------------ */
 
-        setNodes([...nodes, { id: uuid(), name, parentId }]);
+    const addNode = (parentId: string | null, name: string) => {
+        if (!name.trim()) return;
+
+        setNodes((prev) => [
+            ...prev,
+            {
+                id: uuid(),
+                name: name.trim(),
+                parentId,
+                hasLoaded: false,
+            },
+        ]);
+
+        if (parentId) {
+            setExpanded((prev) => new Set(prev).add(parentId));
+        }
     };
+
+    /* ------------ Delete ------------ */
 
     const deleteNode = (id: string) => {
-        if (!confirm("Delete this node and its subtree?")) return;
+        setNodes((prev) => {
+            const getAllChildren = (parentId: string): string[] => {
+                const children = prev.filter(
+                    (n) => n.parentId === parentId
+                );
+                return children.flatMap((c) => [
+                    c.id,
+                    ...getAllChildren(c.id),
+                ]);
+            };
 
-        const getAllChildren = (parentId: string): string[] => {
-            const children = nodes.filter((n) => n.parentId === parentId);
-            return children.flatMap((c) => [
-                c.id,
-                ...getAllChildren(c.id),
-            ]);
-        };
+            const toDelete = [id, ...getAllChildren(id)];
+            return prev.filter((n) => !toDelete.includes(n.id));
+        });
 
-        const toDelete = [id, ...getAllChildren(id)];
-
-        setNodes(nodes.filter((n) => !toDelete.includes(n.id)));
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
     };
 
-    const editNode = (id: string, name: string) => {
-        setNodes(
-            nodes.map((n) =>
-                n.id === id ? { ...n, name } : n
-            )
+    /* ------------ Drag ------------ */
+
+    const isDescendant = (
+        parentId: string,
+        childId: string
+    ): boolean => {
+        const children = nodes.filter(
+            (n) => n.parentId === parentId
         );
+
+        for (const child of children) {
+            if (child.id === childId) return true;
+            if (isDescendant(child.id, childId))
+                return true;
+        }
+        return false;
     };
 
-    /* -------- Drag Logic -------- */
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id.toString());
+    };
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
+        setActiveId(null);
+
         if (!over) return;
         if (active.id === over.id) return;
 
-        const activeNode = nodes.find((n) => n.id === active.id);
-        const overNode = nodes.find((n) => n.id === over.id);
+        const activeNode = getNode(active.id.toString());
+        const overNode = getNode(over.id.toString());
         if (!activeNode || !overNode) return;
 
         // Prevent circular nesting
-        const isDescendant = (parentId: string, childId: string): boolean => {
-            const children = nodes.filter((n) => n.parentId === parentId);
-            for (const child of children) {
-                if (child.id === childId) return true;
-                if (isDescendant(child.id, childId)) return true;
-            }
-            return false;
-        };
+        if (isDescendant(activeNode.id, overNode.id))
+            return;
 
-        if (isDescendant(activeNode.id, overNode.id)) return;
-
-        setNodes(
-            nodes.map((n) =>
+        setNodes((prev) =>
+            prev.map((n) =>
                 n.id === active.id
                     ? { ...n, parentId: overNode.parentId }
                     : n
@@ -139,7 +174,7 @@ export default function TreeView() {
         );
     };
 
-    /* -------- Recursive Render -------- */
+    /* ------------ Render ------------ */
 
     const renderTree = (parentId: string | null) => {
         const children = getChildren(parentId);
@@ -157,7 +192,6 @@ export default function TreeView() {
                         toggleExpand={toggleExpand}
                         addNode={addNode}
                         deleteNode={deleteNode}
-                        editNode={editNode}
                         renderTree={renderTree}
                     />
                 ))}
@@ -166,25 +200,27 @@ export default function TreeView() {
     };
 
     return (
-        <div className="bg-gray-50 p-6 rounded-xl shadow">
+        <div className="bg-gray-50 p-6 rounded-xl shadow-lg max-h-[80vh] overflow-auto">
             <DndContext
                 collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
                 {renderTree(null)}
-            </DndContext>
 
-            <button
-                onClick={() => addNode(null)}
-                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-            >
-                Add Root Node
-            </button>
+                <DragOverlay>
+                    {activeId ? (
+                        <div className="bg-blue-100 px-3 py-2 rounded shadow-lg">
+                            {getNode(activeId)?.name}
+                        </div>
+                    ) : null}
+                </DragOverlay>
+            </DndContext>
         </div>
     );
 }
 
-/* ------------------- NODE COMPONENT ------------------- */
+/* ======================= NODE ======================= */
 
 function TreeNode({
     node,
@@ -192,11 +228,15 @@ function TreeNode({
     toggleExpand,
     addNode,
     deleteNode,
-    editNode,
     renderTree,
 }: any) {
-    const { attributes, listeners, setNodeRef, transform, transition } =
-        useSortable({ id: node.id });
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+    } = useSortable({ id: node.id });
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -204,18 +244,24 @@ function TreeNode({
     };
 
     const [editing, setEditing] = useState(false);
+    const [adding, setAdding] = useState(false);
     const [value, setValue] = useState(node.name);
+    const [newName, setNewName] = useState("");
 
     return (
         <div ref={setNodeRef} style={style} className="ml-6">
-            <div className="flex items-center gap-2 bg-white p-2 rounded shadow mb-2">
-                <span {...attributes} {...listeners} className="cursor-move">
+            <div className="flex items-center gap-2 bg-white p-2 rounded-lg shadow mb-2 hover:bg-gray-50">
+                <span
+                    {...attributes}
+                    {...listeners}
+                    className="cursor-grab text-gray-400"
+                >
                     ☰
                 </span>
 
                 <button
                     onClick={() => toggleExpand(node.id)}
-                    className="font-bold"
+                    className="font-bold w-6"
                 >
                     {expanded.has(node.id) ? "−" : "+"}
                 </button>
@@ -224,30 +270,27 @@ function TreeNode({
                     <input
                         value={value}
                         onChange={(e) => setValue(e.target.value)}
-                        onBlur={() => {
-                            editNode(node.id, value);
-                            setEditing(false);
-                        }}
+                        onBlur={() => setEditing(false)}
+                        className="border px-2 py-1 text-sm rounded w-full"
                         autoFocus
-                        className="border px-1"
                     />
                 ) : (
                     <span
                         onDoubleClick={() => setEditing(true)}
-                        className="flex-1 cursor-pointer"
+                        className="flex-1"
                     >
                         {node.name}
                     </span>
                 )}
 
                 {node.isLoading && (
-                    <span className="text-sm text-gray-400 animate-pulse">
+                    <span className="text-xs text-gray-400 animate-pulse">
                         Loading...
                     </span>
                 )}
 
                 <button
-                    onClick={() => addNode(node.id)}
+                    onClick={() => setAdding(!adding)}
                     className="text-green-600"
                 >
                     +
@@ -255,11 +298,32 @@ function TreeNode({
 
                 <button
                     onClick={() => deleteNode(node.id)}
-                    className="text-red-600"
+                    className="text-red-500"
                 >
                     ×
                 </button>
             </div>
+
+            {adding && (
+                <div className="ml-10 mb-2">
+                    <input
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="Enter child name"
+                        className="border px-2 py-1 text-sm rounded"
+                    />
+                    <button
+                        onClick={() => {
+                            addNode(node.id, newName);
+                            setNewName("");
+                            setAdding(false);
+                        }}
+                        className="ml-2 px-2 py-1 bg-blue-500 text-white rounded text-sm"
+                    >
+                        Add
+                    </button>
+                </div>
+            )}
 
             {expanded.has(node.id) && renderTree(node.id)}
         </div>
